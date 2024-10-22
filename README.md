@@ -24,9 +24,9 @@ options:
 calc_metrics.py --bucket_name vz-analyzed-merfish \
 --exp_name 202410121816_241003JHMSTM000J6M-MsTMA-DM1922-V1-TZ_VMSC11802 \
 --outputfolderpath output \
---skip_spatial False 
---plot True 
---expression /efs/swang/expression/Mouse_brain_exp.csv 
---region R1 
+--skip_spatial False \
+--plot True \
+--expression /efs/swang/expression/Mouse_brain_exp.csv \
+--region R1 \
 2>&1 | tee 202410121816_241003JHMSTM000J6M-MsTMA-DM1922-V1-TZ_VMSC11802_R1.log
 </pre>
