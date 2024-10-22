@@ -2,15 +2,31 @@
 
 ## usage: 
 <pre>
-    python  generate_metrics.py \
-    --path_detected_trs s3://vz-analyzed-merfish/202403191513_4MsBrain-FF-1kDM0824-M1Ctrl-TZ_VMSC15302/PartitionTranscripts/region_3/detected_transcripts.csv  \
-    --path_cell_by_gene s3://vz-analyzed-merfish/202403191513_4MsBrain-FF-1kDM0824-M1Ctrl-TZ_VMSC15302/PartitionTranscripts/region_3/cell_by_gene.csv \ 
-    --path_cell_metadata s3://vz-analyzed-merfish/202403191513_4MsBrain-FF-1kDM0824-M1Ctrl-TZ_VMSC15302/DeriveEntityMetadataTask/region_3/cell_metadata.csv \
-    --path_code_book s3://vz-analyzed-merfish/202403191513_4MsBrain-FF-1kDM0824-M1Ctrl-TZ_VMSC15302/codebook_0_DM0824_30bitVerification_DM0824.csv  \
-    --exp_id 202403191513_4MsBrain-FF-1kDM0824-M1Ctrl-TZ_VMSC15302 \
-    --output_dir test \
-    --exp_data Mouse_brain_exp.csv \
-    --portion 0.1 \
-    --fov_size 0.202  
+usage: calc_metrics.py [-h] --bucket_name BUCKET_NAME --exp_name EXP_NAME [--region REGION] [--expression EXPRESSION] [--skip_spatial SKIP_SPATIAL] [--plot PLOT] [--outputfolderpath OUTPUTFOLDERPATH]
 
+options:
+  -h, --help            show this help message and exit
+  --bucket_name BUCKET_NAME
+                        Bucket name for S3 storage, ie. vz-analyzed-merfish
+  --exp_name EXP_NAME   experiment name, ie, 202404272011_HuBrCa-FFPE-HQ1353023B-BM1506-3xV1-30-BY_VMSC14402
+  --region REGION       specify the region, ie R3, if don't specify, will take all regions
+  --expression EXPRESSION
+                        expression tabel
+  --skip_spatial SKIP_SPATIAL
+                        Skip spatial analysis like umap, leiden
+  --plot PLOT           Generate plots or not
+  --outputfolderpath OUTPUTFOLDERPATH
+                        Output folder path
+</pre>
+
+## example:
+<pre>
+calc_metrics.py --bucket_name vz-analyzed-merfish \
+--exp_name 202410121816_241003JHMSTM000J6M-MsTMA-DM1922-V1-TZ_VMSC11802 \
+--outputfolderpath output \
+--skip_spatial False 
+--plot True 
+--expression /efs/swang/expression/Mouse_brain_exp.csv 
+--region R1 
+2>&1 | tee 202410121816_241003JHMSTM000J6M-MsTMA-DM1922-V1-TZ_VMSC11802_R1.log
 </pre>

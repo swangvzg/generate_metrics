@@ -19,6 +19,7 @@ from scipy.sparse import csr_matrix
 from scipy.stats import ttest_ind
 import datetime
 import metrics
+from scipy.optimize import curve_fit
 
 def calc_qc_metrics(
     path_detected_trans,
@@ -29,8 +30,10 @@ def calc_qc_metrics(
     path_to_codebook=None,
     outputfolderpath=None,
     expid=None,
-    portion = 0.1,
-    plot=True):
+    portion = 0.0001,
+    plot=False,
+    skip_spatial=True
+    ):
     """
     Calculate quality control (QC) metrics for single-cell transcriptomics data.
 
@@ -101,14 +104,14 @@ def calc_qc_metrics(
                                  exp_table, path_to_codebook, outputfolderpath, expid, plot)
     """
 
-    print("current time:- ", datetime.datetime.now())
-    print("Reading the detected transcript file")
+    #print("current time:- ", datetime.datetime.now())
+    #print("Reading the detected transcript file")
     
-    qc_metrics, gene_count_dic, trs_count_dic, barcode_count_dic, data_picked_df, z_error_rates, z_counts, global_x_min, global_x_max, global_y_min, global_y_max = metrics.detected_trs_metrics(path_detected_trans, portion=portion, fov_size = fov_size)
-    
+    qc_metrics, gene_count_dic, trs_count_dic, barcode_count_dic, data_picked_df, z_error_rates, z_counts, global_x_min, global_x_max, global_y_min, global_y_max, fov_count_dic, grid_10um = metrics.detected_trs_metrics(path_detected_trans, portion=portion, fov_size = fov_size)
+    print("Portion: ", portion)
     # output gene_count_dic
-    print("save gene count to csv: ", f"{expid}_gene_count.csv")
-    pd.DataFrame.from_dict(gene_count_dic, orient="index").to_csv(f"{expid}_gene_count.csv")
+    #print("save gene count to csv: ", f"{outputfolderpath}/{expid}_gene_count.csv")
+    pd.DataFrame.from_dict(gene_count_dic, orient="index").to_csv(f"{outputfolderpath}/{expid}_gene_count.csv")
     
     print('data_picked_df.shape, ', data_picked_df.shape)
     # check if the detected_trasnscript.csv is too big #line > 1e8
@@ -116,14 +119,14 @@ def calc_qc_metrics(
         print('Total count: ', qc_metrics['Total counts'], " < 1e8 ")
         print(f"Using the whole csv file: {path_detected_trans} in stead of a subset.")
         data_picked_df = pd.read_csv(path_detected_trans)
-        print('data_picked_df.shape, ', data_picked_df.shape)
+        #print('data_picked_df.shape, ', data_picked_df.shape)
         
     num_unique_barcode_id = qc_metrics['unique_coding_barcodes'] + qc_metrics['unique_blank_barcodes']
     
     if path_to_codebook is not None:
-        print("####  Calculate the bit error metrics ####")
-        print("current time:- ", datetime.datetime.now())
-        codebook = pd.read_csv(path_to_codebook, index_col=False)
+        #print("####  Calculate the bit error metrics ####")
+        #print("current time:- ", datetime.datetime.now())
+        codebook = pd.read_csv(path_to_codebook, index_col=False, comment='#')
         subset = codebook.copy()
         if "barcodeType" in subset.columns:
             subset = subset[subset["barcodeType"] == 'merfish']
@@ -176,8 +179,8 @@ def calc_qc_metrics(
             coding_index) & (bcCounts['count'] > bcCounts[bcCounts['bc'].isin(blank_index)]['count'].median())])/len(coding_index)
 
     #if 'transcript_confidence' in dt.columns:
-    #    print('#### Calculating transcript_confidence related metrics ####')
-    #    print("current time:- ", datetime.datetime.now())
+    #    #print('#### Calculating transcript_confidence related metrics ####')
+    #    #print("current time:- ", datetime.datetime.now())
     #    mean_confi_blank = coding_bar['transcript_confidence'].mean().compute()
     #    mean_confi_trs =  blank_bar['transcript_confidence'].mean().compute()
     #    std_confi_blank = blank_bar['transcript_confidence'].std().compute()
@@ -194,18 +197,18 @@ def calc_qc_metrics(
 
 
     if exp_table is not None:
-        print("####  Calculate the bulk-cor metrics ####")
-        print("current time:- ", datetime.datetime.now())
+        #print("####  Calculate the bulk-cor metrics ####")
+        #print("current time:- ", datetime.datetime.now())
         trs_count_df = pd.DataFrame.from_dict(trs_count_dic, orient='index').reset_index()
         trs_count_df.columns = ['transcript_id', 'count']
-        #print(trs_count_df.loc[0:10])
+        print('trs_count_df: ', trs_count_df.loc[0:10])
         merged_df, bulk_metrics, plot_metrics = segmented_regression(trs_count_df, exp_table)
         qc_metrics.update(bulk_metrics)
 
 
     # calculate the checkerboard
-    print("####  Calculate the checkerboard metrics ####")
-    print("current time:- ", datetime.datetime.now())
+    #print("####  Calculate the checkerboard metrics ####")
+    #print("current time:- ", datetime.datetime.now())
     cbresults = generate_metrics(data_picked_df, global_x_min, global_x_max, global_y_min, global_y_max, qc_metrics['unique_coding_barcodes'], fov_size)
 
     qc_metrics['cb_mean'] = cbresults[0]
@@ -216,110 +219,120 @@ def calc_qc_metrics(
 
 
     # contain the blank
-    print("####  Calculate the per cell metrics ####")
-    print("current time:- ", datetime.datetime.now())
-    adata = make_AnnData(path_cell_by_gene, path_cell_metadata)
-    adata_all = adata.copy()
+    #print("####  Calculate the per cell metrics ####")
+    #print("current time:- ", datetime.datetime.now())
+    adata_defined = False
+    print('path_cell_by_gene: ', path_cell_by_gene)
+    print('path_cell_metadata: ', path_cell_metadata)
+    if path_cell_by_gene and path_cell_metadata and not skip_spatial:
+        adata = make_AnnData(path_cell_by_gene, path_cell_metadata)
+        adata_defined = True
+        adata_all = adata.copy()
 
-    # remove the blank
-    adata = adata[:, ~adata.var.index.str.contains("Blank")]
+        # remove the blank
+        adata = adata[:, ~adata.var.index.str.contains("Blank")]
 
-    qc_metrics['Num unique cells'] = len(adata.obs)
-    qc_metrics['Num unique genes'] = len(adata.var)
+        qc_metrics['Num unique cells'] = len(adata.obs)
+        qc_metrics['Num unique genes'] = len(adata.var)
 
-    # calculate QC metrics
-    sc.pp.calculate_qc_metrics(adata, expr_type='counts', var_type='genes',
-                           qc_vars=(), percent_top=(50, 100),
-                           layer=None, use_raw=False, inplace=True, log1p=False,
-                           parallel=None)
+        # calculate QC metrics
+        sc.pp.calculate_qc_metrics(adata, expr_type='counts', var_type='genes',
+                               qc_vars=(), percent_top=(50, 100),
+                               layer=None, use_raw=False, inplace=True, log1p=False,
+                               parallel=None)
 
-    expressed_genes_per_cell = np.sum(adata.X > 0, axis=1)
-    print(f"Mean transcript / cell: {adata.obs['barcodeCount'].mean()}")
-    print(f"Mean genes / cell: {np.mean(expressed_genes_per_cell)}")
-    print(f"Median transcript / cell: {adata.obs['barcodeCount'].median()}")
-    print(f"Median genes / cell: {np.median(expressed_genes_per_cell)}")
-    qc_metrics['Mean transcript / cell'] = adata.obs['barcodeCount'].mean()
-    qc_metrics['Mean genes / cell'] = np.mean(expressed_genes_per_cell)
-    qc_metrics['Median transcript / cell'] = adata.obs['barcodeCount'].median()
-    qc_metrics['Median genes / cell'] = np.median(expressed_genes_per_cell)
-    
-    #filter cells based on counts number and volume of the cell
-    #if no filter,the number calculated cannot reflect real value of a cell
-    # do minimum filtering by 10 counts per cell
-    min_counts = 50
-    min_volume = 50
+        expressed_genes_per_cell = np.sum(adata.X > 0, axis=1)
+        #print(f"Mean transcript / cell: {adata.obs['barcodeCount'].mean()}")
+        #print(f"Mean genes / cell: {np.mean(expressed_genes_per_cell)}")
+        #print(f"Median transcript / cell: {adata.obs['barcodeCount'].median()}")
+        #print(f"Median genes / cell: {np.median(expressed_genes_per_cell)}")
+        qc_metrics['Mean transcript / cell'] = adata.obs['barcodeCount'].mean()
+        qc_metrics['Mean genes / cell'] = np.mean(expressed_genes_per_cell)
+        qc_metrics['Median transcript / cell'] = adata.obs['barcodeCount'].median()
+        qc_metrics['Median genes / cell'] = np.median(expressed_genes_per_cell)
 
-    #calculate the percent of cells within this
-    qc_metrics['Num filtered cells'] = ((adata.obs['total_counts'] >= min_counts) &
-             (adata.obs['volume'] >= min_volume)).sum()
-    qc_metrics['perc filtered cells'] = f"{(qc_metrics['Num filtered cells']/qc_metrics['Num unique cells'])*100:.2f}%"
+        #filter cells based on counts number and volume of the cell
+        #if no filter,the number calculated cannot reflect real value of a cell
+        # do minimum filtering by 10 counts per cell
+        min_counts = 50
+        min_volume = 50
 
-    adata=adata[(adata.obs['total_counts'] >= min_counts) & (adata.obs['volume'] >= min_volume)]
+        #calculate the percent of cells within this
+        qc_metrics['Num filtered cells'] = ((adata.obs['barcodeCount'] >= min_counts) &
+                 (adata.obs['volume'] >= min_volume)).sum()
+        qc_metrics['perc filtered cells'] = f"{(qc_metrics['Num filtered cells']/qc_metrics['Num unique cells'])*100:.2f}%"
 
-    # calculate again
-    sc.pp.calculate_qc_metrics(adata, expr_type='counts', var_type='genes',
-                           qc_vars=(), percent_top=(50, 100),
-                           layer=None, use_raw=False, inplace=True, log1p=False,
-                           parallel=None)
+        adata=adata[(adata.obs['barcodeCount'] >= min_counts) & (adata.obs['volume'] >= min_volume)]
 
-    qc_metrics['pct_dropout_by_counts_median'] = adata.var['pct_dropout_by_counts'].median()
-    qc_metrics['n_cells_by_counts_median'] = adata.var['n_cells_by_counts'].median()
-    qc_metrics['n_genes_by_counts_median'] = adata.obs['n_genes_by_counts'].median()
-    qc_metrics['pct_dropout_by_counts_mean'] = adata.var['pct_dropout_by_counts'].mean()
-    qc_metrics['n_cells_by_counts_mean'] = adata.var['n_cells_by_counts'].mean()
-    qc_metrics['n_genes_by_counts_mean'] = adata.obs['n_genes_by_counts'].mean()
-    
-    
-    ## calculate the highly variable genes, and dispersion of each gene across all cells
-    print("####  Calculate the pca, clustering metrics ####")
-    print("current time:- ", datetime.datetime.now())
-    sc.pp.normalize_total(adata)
-    sc.pp.log1p(adata)
-    sc.pp.scale(adata, max_value=10)
-    sc.pp.highly_variable_genes(adata)
-
-    qc_metrics['Num highly variable genes'] = len(adata.var[adata.var.highly_variable])
-
-    qc_metrics['gene_expression_dispersion_median'] = adata.var['dispersions'].median()
-    qc_metrics['gene_expression_dispersion_mean'] = adata.var['dispersions'].mean()
-
-    sc.tl.pca(adata, svd_solver='arpack')
-    sc.pp.neighbors(adata, n_neighbors=15, n_pcs=20)
-    sc.tl.umap(adata)
-    sc.tl.leiden(adata, resolution=1)
-    qc_metrics['Num clusters'] = adata.obs['leiden'].nunique()
-    # filtering cluster based its size
-    cluster_sizes = adata.obs.groupby(['leiden']).size()
-    size_cutoff = 100
-    picked_leiden_clusters = cluster_sizes[cluster_sizes > size_cutoff].index.to_list()
-    qc_metrics['Num clusters after filtering (> 100)'] = len(picked_leiden_clusters)
-    adata = adata[[i for i in adata.obs.index if adata.obs.loc[i, 'leiden'] in picked_leiden_clusters]].copy()
-
-    print("####  Calculate the moranI metrics ####")
-    print("current time:- ", datetime.datetime.now())
-    
-    # downsample to 0.5M for moranI analysis
-    adata_down = adata_all.copy()
-    if qc_metrics['Num unique cells'] > 500000:
-        adata_down = adata_all[np.random.choice(list(adata_all.obs.index), 500000, replace=False)].copy()
-    sq.gr.spatial_neighbors(adata_down, radius=20, coord_type="generic", delaunay=True)
-    sq.gr.spatial_autocorr(adata_down,mode="moran",n_perms=100,n_jobs=5)
-    moran = adata_down.uns['moranI']
-
-    group_blank = moran[moran.index.str.contains('Blank')]
-    group_others = moran[~moran.index.str.contains('Blank')]
+        # calculate again
+        try:
+            sc.pp.calculate_qc_metrics(adata, expr_type='counts', var_type='genes',
+                               qc_vars=(), percent_top=(50, 100),
+                               layer=None, use_raw=False, inplace=True, log1p=False,
+                               parallel=None)
+            qc_metrics['pct_dropout_by_counts_median'] = adata.var['pct_dropout_by_counts'].median()
+            qc_metrics['n_cells_by_counts_median'] = adata.var['n_cells_by_counts'].median()
+            qc_metrics['n_genes_by_counts_median'] = adata.obs['n_genes_by_counts'].median()
+            qc_metrics['pct_dropout_by_counts_mean'] = adata.var['pct_dropout_by_counts'].mean()
+            qc_metrics['n_cells_by_counts_mean'] = adata.var['n_cells_by_counts'].mean()
+            qc_metrics['n_genes_by_counts_mean'] = adata.obs['n_genes_by_counts'].mean()
+        except Exception as e:
+            print("sc.pp.calculate_qc_metrics erro: ", e)
 
 
-    top_blank_genes = group_blank.nlargest(3, 'I').index
-    top_other_genes = group_others.nlargest(3, 'I').index
+        ## calculate the highly variable genes, and dispersion of each gene across all cells
+        #print("####  Calculate the pca, clustering metrics ####")
+        #print("current time:- ", datetime.datetime.now())
+        sc.pp.normalize_total(adata)
+        sc.pp.log1p(adata)
+        sc.pp.scale(adata, max_value=10)
+        sc.pp.highly_variable_genes(adata)
 
-    qc_metrics['mean_moranI_blank'] = group_blank['I'].mean()
-    qc_metrics['max_moranI_blank'] = group_blank['I'].max()
-    qc_metrics['mean_moranI_coding'] = group_others['I'].mean()
-    qc_metrics['max_moranI_coding'] = group_others['I'].max()
+        qc_metrics['Num highly variable genes'] = len(adata.var[adata.var.highly_variable])
+
+        qc_metrics['gene_expression_dispersion_median'] = adata.var['dispersions'].median()
+        qc_metrics['gene_expression_dispersion_mean'] = adata.var['dispersions'].mean()
+
+        try:
+            sc.tl.pca(adata, svd_solver='arpack')
+            sc.pp.neighbors(adata, n_neighbors=15, n_pcs=10)
+            sc.tl.umap(adata)
+            sc.tl.leiden(adata, resolution=1)
+            qc_metrics['Num clusters'] = adata.obs['leiden'].nunique()
+            # filtering cluster based its size
+            cluster_sizes = adata.obs.groupby(['leiden']).size()
+            size_cutoff = 100
+            picked_leiden_clusters = cluster_sizes[cluster_sizes > size_cutoff].index.to_list()
+            qc_metrics['Num clusters after filtering (> 100)'] = len(picked_leiden_clusters)
+            if len(cluster_sizes) > 30:
+                adata = adata[[i for i in adata.obs.index if adata.obs.loc[i, 'leiden'] in picked_leiden_clusters]].copy()
+        except Exception as e:
+            print('pca-umap-leiden step: ', e)
+        #print("####  Calculate the moranI metrics ####")
+        #print("current time:- ", datetime.datetime.now())
+
+        # downsample to 0.5M for moranI analysis
+        adata_down = adata_all.copy()
+        if qc_metrics['Num unique cells'] > 500000:
+            adata_down = adata_all[np.random.choice(list(adata_all.obs.index), 500000, replace=False)].copy()
+        sq.gr.spatial_neighbors(adata_down, radius=20, coord_type="generic", delaunay=True)
+        sq.gr.spatial_autocorr(adata_down,mode="moran",n_perms=100,n_jobs=5)
+        moran = adata_down.uns['moranI']
+
+        group_blank = moran[moran.index.str.contains('Blank')]
+        group_others = moran[~moran.index.str.contains('Blank')]
+
+
+        top_blank_genes = group_blank.nlargest(3, 'I').index
+        top_other_genes = group_others.nlargest(3, 'I').index
+
+        qc_metrics['mean_moranI_blank'] = group_blank['I'].mean()
+        qc_metrics['max_moranI_blank'] = group_blank['I'].max()
+        qc_metrics['mean_moranI_coding'] = group_others['I'].mean()
+        qc_metrics['max_moranI_coding'] = group_others['I'].max()
 
     # calculate spillover
-#    print("####  Calculate spillover metrics ####")
+#    #print("####  Calculate spillover metrics ####")
 #    cbg = pd.read_csv(path_cell_by_gene, index_col=0)
 #    cbg.index = [str(x) for x in cbg.index.tolist()]
 
@@ -332,6 +345,9 @@ def calc_qc_metrics(
 #        df_spillover.to_csv(os.path.join(outputfolderpath,expid+'_spillover.csv'))
 #        df_spillover_gene.to_csv(os.path.join(outputfolderpath,expid+'_spillover_gene.csv'))
 
+    # calculate thickness
+    thickness_metrics = process_dataset(expid, qc_metrics, fov_count_dic, grid_10um, z_counts)
+    qc_metrics = {**qc_metrics, **thickness_metrics}
 
     if plot:
         print("####  make plots ####")
@@ -345,7 +361,7 @@ def calc_qc_metrics(
 
                 ax[0].loglog(plot_metrics['x'],plot_metrics['y'],'.')
                 ax[0].loglog(np.power(10, plot_metrics['xx_plot']), np.power(10,plot_metrics['yy_plot']))
-                ax[0].vlines(10**plot_metrics['breakpoints'][-1], np.min(np.log10(plot_metrics['x'])), 10**6, linestyle = '--', color = 'orange')
+                ax[0].vlines(10**plot_metrics['breakpoints'][0], np.min(np.log10(plot_metrics['x'])), 10**6, linestyle = '--', color = 'orange')
 
                 textstr = '\n'.join((
                 "inflection point = {:.2f} FPKM".format(10**plot_metrics['breakpoints'][0]),
@@ -373,7 +389,6 @@ def calc_qc_metrics(
             if outputfolderpath is not None:
                 plt.savefig(os.path.join(outputfolderpath,expid+'_r2_bulk.jpg'))
             plt.show()
-
         fig, axes = plt.subplots(2, 3, figsize=(15, 10))
         plt.subplots_adjust(hspace=0.5, wspace=0.5)
 
@@ -410,7 +425,7 @@ def calc_qc_metrics(
 
         fig.tight_layout()
         if outputfolderpath is not None:
-            plt.savefig(os.path.join(outputfolderpath,expid+'_spatial.jpg'))
+            plt.savefig(os.path.join(outputfolderpath,expid+'_spa_.jpg'))
         plt.show()
 
         if path_to_codebook is not None:
@@ -428,101 +443,112 @@ def calc_qc_metrics(
             if outputfolderpath is not None:
                 plt.savefig(os.path.join(outputfolderpath,expid+'_piterror.jpg'))
             plt.show()
-
-
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         plt.subplots_adjust(hspace=0.5, wspace=0.5)
+        if adata_defined:
+            sns.histplot(
+                adata.obs["barcodeCount"],
+                kde=False,
+                label='adata',
+                ax=axes[0]
+            )
 
-        sns.histplot(
-            adata.obs["total_counts"],
-            kde=False,
-            label='adata',
-            ax=axes[0]
-        )
+            sns.histplot(
+                adata.obs["n_genes_by_counts"],
+                kde=False,
+                label='adata',
+                ax=axes[1]
+            )
 
-        sns.histplot(
-            adata.obs["n_genes_by_counts"],
-            kde=False,
-            label='adata',
-            ax=axes[1]
-        )
-
-        sns.histplot(
-            adata.var["n_cells_by_counts"],
-            kde=False,
-            label='adata',
-            ax=axes[2]
-        )
+            sns.histplot(
+                adata.var["n_cells_by_counts"],
+                kde=False,
+                label='adata',
+                ax=axes[2]
+            )
         fig.tight_layout()
         if outputfolderpath is not None:
             plt.savefig(os.path.join(outputfolderpath,expid+'_bycounts.jpg'))
         plt.show()
-        
         # genes per cell plot and Transcripts per cell plot
         fig, axes = plt.subplots(1, 2, figsize=(15, 5))
         plt.subplots_adjust(hspace=0.5, wspace=0.5)
-        sns.histplot(expressed_genes_per_cell, bins=50, kde=False, ax = axes[0])
-        axes[0].set_xlabel('Number of genes per cell')
-        axes[0].set_ylabel('Number of cells')
-        axes[0].set_title('Genes Per Cell')
+        if adata_defined:
+            sns.histplot(expressed_genes_per_cell, bins=50, kde=False, ax = axes[0])
+            axes[0].set_xlabel('Number of genes per cell')
+            axes[0].set_ylabel('Number of cells')
+            axes[0].set_title('Genes Per Cell')
         
-        sns.histplot(adata.obs['barcodeCount'], bins=50, kde=False, ax = axes[1])
-        axes[1].set_xlabel('Number of transcripts per cell')
-        axes[1].set_ylabel('Number of cells')
-        axes[1].set_title('Transcripts Per Cell')
+        if adata_defined:
+            sns.histplot(adata.obs['barcodeCount'], bins=50, kde=False, ax = axes[1])
+            axes[1].set_xlabel('Number of transcripts per cell')
+            axes[1].set_ylabel('Number of cells')
+            axes[1].set_title('Transcripts Per Cell')
         
         fig.tight_layout()
         if outputfolderpath is not None:
             plt.savefig(os.path.join(outputfolderpath,expid+'_PerCell.jpg'))
         plt.show()
+        #print('adata.shape: ', adata.shape)
+        try:
+            if adata_defined and adata.shape[0] > 0:
+                with plt.rc_context({'figure.figsize': (3, 3)}):
+                    sc.pl.umap(adata, color=["leiden"], legend_loc='on data',legend_fontsize = 8, show=False)
+                    if outputfolderpath is not None:
+                        plt.savefig(os.path.join(outputfolderpath,expid+'_umap.jpg'), bbox_inches="tight")
 
-        with plt.rc_context({'figure.figsize': (3, 3)}):
-            sc.pl.umap(adata, color=["leiden"], legend_loc='on data',legend_fontsize = 8, show=False)
-            if outputfolderpath is not None:
-                plt.savefig(os.path.join(outputfolderpath,expid+'_umap.jpg'), bbox_inches="tight")
+                with plt.rc_context({'figure.figsize': (3, 3)}):
+                    sc.pl.embedding(adata, 'spatial', color = 'leiden',size=1,cmap='plasma_r', show=False)
+                    if outputfolderpath is not None:
+                        plt.savefig(os.path.join(outputfolderpath,expid+'_spatial.jpg'), bbox_inches="tight")
 
-        with plt.rc_context({'figure.figsize': (3, 3)}):
-            sc.pl.embedding(adata, 'spatial', color = 'leiden',size=1,cmap='plasma_r', show=False)
-            if outputfolderpath is not None:
-                plt.savefig(os.path.join(outputfolderpath,expid+'_spatial.jpg'), bbox_inches="tight")
+                with plt.rc_context({'figure.figsize': (3, 3)}):
+                    sc.pl.embedding(adata_all, 'spatial', color = top_other_genes,size=10, cmap="Reds", show=False)
+                    if outputfolderpath is not None:
+                        plt.savefig(os.path.join(outputfolderpath,expid+'_moranI_1.jpg'), bbox_inches="tight")
 
-        with plt.rc_context({'figure.figsize': (3, 3)}):
-            sc.pl.embedding(adata_all, 'spatial', color = top_other_genes,size=10, cmap="Reds", show=False)
-            if outputfolderpath is not None:
-                plt.savefig(os.path.join(outputfolderpath,expid+'_moranI_1.jpg'), bbox_inches="tight")
-
-        with plt.rc_context({'figure.figsize': (3, 3)}):
-            sc.pl.embedding(adata_all, 'spatial', color = top_blank_genes,size=10,cmap="Reds", show=False)
-            if outputfolderpath is not None:
-                plt.savefig(os.path.join(outputfolderpath,expid+'_moranI_2.jpg'), bbox_inches="tight")
+                with plt.rc_context({'figure.figsize': (3, 3)}):
+                    sc.pl.embedding(adata_all, 'spatial', color = top_blank_genes,size=10,cmap="Reds", show=False)
+                    if outputfolderpath is not None:
+                        plt.savefig(os.path.join(outputfolderpath,expid+'_moranI_2.jpg'), bbox_inches="tight")
+        except Exception as e:
+            print("plot-umap step: ", e)
 
         merscope_checkerboard_analysis(data_picked_df, global_x_min, global_x_max, global_y_min, global_y_max, fov_size, qc_metrics['unique_coding_barcodes'], outputfolderpath, expid)
         
     # add corner to center ratio
-    vmin_2percent_ratio, vmin_3percent_ratio, vmin_5percent_ratio = calc_corner_to_center_ratio(data_picked_df)
+    vmin_2percent_ratio, vmin_3percent_ratio, vmin_5percent_ratio = calc_corner_to_center_ratio(data_picked_df,fov_size)
     qc_metrics['corner_to_center_ratio_2per'] = float("%.2f" % vmin_2percent_ratio)
     qc_metrics['corner_to_center_ratio_3per'] = float("%.2f" % vmin_3percent_ratio)
     qc_metrics['corner_to_center_ratio_5per'] = float("%.2f" % vmin_5percent_ratio)
 
     if outputfolderpath is not None:
         df = pd.DataFrame.from_dict(qc_metrics, orient='index')
-        df.to_csv(os.path.join(outputfolderpath,expid+'_res.csv'))
+        #df.to_csv(os.path.join(outputfolderpath,expid+'_res.csv'))
 
     return qc_metrics
 
-def calc_corner_to_center_ratio(data_df):
+def calc_corner_to_center_ratio(data_df, fov_size):
     """
     From Shawn
     return the ratio of 2 percentile to mean, the ratio of 3 percentile to mean and the ratio of 5 percentile to mean
     """
-    h, xe, ye = np.histogram2d(data_df["y"], data_df["x"], bins=128)
+    data_copy = data_df.copy()
+    # M1 2048 2048/2 + 1835/2 = 1941, 2048/2 - 1835/2 = 106 [106, 1941] 
+    # M1.7 2960/2 + 2642/2 = 2801 , 2960/2 - 2642/2 = 159, so the range should be [159, 2801]
+    minlimit = 106
+    maxlimit = 1941
+    if fov_size != 0.202:
+        minlimit = 159
+        maxlimit = 2801
+    data_copy = data_copy[(data_copy["x"] < maxlimit) & (data_copy["y"] < maxlimit) & (data_copy["x"] > minlimit) & (data_copy["y"] > minlimit)]
+    h, xe, ye = np.histogram2d(data_copy["x"], data_copy["y"], bins=128)
     vmin = np.min(h)
     vmin_2percent = np.percentile(h, 2)
     vmin_3percent = np.percentile(h, 3)
     vmin_5percent = np.percentile(h, 5)
     vmean = np.mean(h)
     vmax = np.max(h)
-    
     return(vmin_2percent/vmean, vmin_3percent/vmean, vmin_5percent/vmean)
 
 def make_AnnData(cell_by_gene_path, meta_cell_path, min_count = 0):
@@ -552,17 +578,17 @@ def make_AnnData(cell_by_gene_path, meta_cell_path, min_count = 0):
 
 def merscope_checkerboard_values(transcripts, pixel_dimensions, cb_spacing):
 
-    print('pixel_dimensions ', pixel_dimensions)
-    print('transcripts: ', np.array(transcripts)[0:30])
-    print('Nan: ', [x for x in transcripts if x != x])
+    #print('pixel_dimensions ', pixel_dimensions)
+    #print('transcripts: ', np.array(transcripts)[0:30])
+    #print('Nan: ', [x for x in transcripts if x != x])
     transcripts = [x for x in transcripts if x == x]
-    print('len(transcripts): ', len(transcripts))
+    #print('len(transcripts): ', len(transcripts))
     hist, bins = np.histogram(transcripts, bins=np.arange(0,pixel_dimensions,1), density=True)
     bins_thr = bins[:-1][hist > 0.00001] # thresholded bins - extracts all bins for which hist > 0.0001
     #cb_spacing = 202 # checkerboard spacing in um
-    print('bins_thr[:10], ', bins_thr[:10])
-    print('np.amin(bins_thr), ', np.amin(bins_thr))
-    print('np.amax(bins_thr), ', np.amax(bins_thr))
+    #print('bins_thr[:10], ', bins_thr[:10])
+    #print('np.amin(bins_thr), ', np.amin(bins_thr))
+    #print('np.amax(bins_thr), ', np.amax(bins_thr))
     hist_thr = hist[int(np.amin(bins_thr)):int(np.amax(bins_thr))] # thresholded hist - removes all "empty" bins on the periphery
     cb_chunk = np.zeros(cb_spacing)
     fovs = int(np.floor(len(hist_thr)/cb_spacing))
@@ -637,10 +663,10 @@ def generate_metrics(filtered_transcripts, global_x_min, global_x_max, global_y_
 
     for plane_number in range(7): # for each z plane
         plane = filtered_transcripts_adjusted[filtered_transcripts_adjusted['global_z'] == plane_number]
-        print('plane.shape, ', plane.shape)
+        #print('plane.shape, ', plane.shape)
         transcript_count.append(plane.shape[0]) # transcript count per plane
-        print(plane.loc[:10, :])
-        #print(pixel_dimensions)
+        #print(plane.loc[:10, :])
+        ##print(pixel_dimensions)
 
         hist_x, cb_chunk_x = merscope_checkerboard_values(plane['global_x'], pixel_dimensions, int(fov_size*1000))
         hist_y, cb_chunk_y = merscope_checkerboard_values(plane['global_y'], pixel_dimensions, int(fov_size*1000))
@@ -725,12 +751,13 @@ def segmented_regression(trans_count, exp):
 
     #trans_count = trans['transcript_id'].value_counts().to_frame().reset_index().compute()
     #trans_count.columns = ['transcript_id','count']
-    exp = exp.reset_index()
+    #exp = exp.reset_index()
     exp.columns = ['transcript_id','count']
-    #print(exp.loc[0:10])
+    ##print(exp.loc[0:10])
+    #trans_count['transcript_id'] = trans_count['transcript_id'].apply(pad_ensembl_id)
     merged_df = trans_count.merge(exp, on='transcript_id', how='inner')
     merged_df.columns = ['transcript_id','merfish','bulk']
-    print(merged_df.loc[0:10])
+    #print(merged_df.loc[0:10])
     merged_df = merged_df.fillna(0)
     merged_df = merged_df.loc[(merged_df['merfish'] > 0) & (merged_df['bulk'] > 0)]
     merged_df['bulk'] = [i if i > 0.0001 else 0.0001 for i in merged_df['bulk'] ] # remove extremly low numbers like 1e-150
@@ -738,7 +765,7 @@ def segmented_regression(trans_count, exp):
     merfish_fpkm =np.log10(merged_df['merfish'])
     ref_fpkm = np.log10(merged_df['bulk'])
     corr = np.corrcoef(merfish_fpkm, ref_fpkm)[0,1]
-
+    #print(corr)
     # calculate the ratio between merfish count/bulk count
     merged_df['ratio'] = merged_df['merfish'] / (merged_df['bulk'].replace(0, 1))
     mean_ratio = merged_df['ratio'].mean()
@@ -752,86 +779,107 @@ def segmented_regression(trans_count, exp):
     within_range_count = len(merged_df[(merged_df['ratio'] >= lower_bound) & (merged_df['ratio'] <= upper_bound)])
     outside_range_count = len(merged_df[(merged_df['ratio'] < lower_bound) | (merged_df['ratio'] > upper_bound)])
 
-
     x = merged_df[merged_df['bulk']>0.01]['bulk'].to_numpy() +0.0001
     y = merged_df[merged_df['bulk']>0.01]['merfish'].to_numpy()
-    #plt.loglog(merged_df[merged_df['bulk']>0.01]['bulk']+0.0001, merged_df[merged_df['bulk']>0.01]['MERFISH'] ,'.')
-
-    pw_fit = piecewise_regression.Fit(np.log10(x), np.log10(y), n_breakpoints=1)
-
+    
+    # Fit the piecewise regression model
+    breakpoints = None
+    breakpoints_1 = None
+    pw_fit = piecewise_regression.Fit(np.log10(x), np.log10(y), n_breakpoints=2)
     if pw_fit.best_muggeo:
-        final_params = pw_fit.best_muggeo.best_fit.raw_params
-        breakpoints = pw_fit.best_muggeo.best_fit.next_breakpoints
+        breakpoints = sorted(pw_fit.best_muggeo.best_fit.next_breakpoints)[0]
+    pw_fit_1 = piecewise_regression.Fit(np.log10(x), np.log10(y), n_breakpoints=1)
+    if pw_fit_1.best_muggeo:
+        breakpoints_1 = sorted(pw_fit_1.best_muggeo.best_fit.next_breakpoints)[0]
 
-        # Extract what we need from params etc
-        intercept_hat = final_params[0]
-        alpha_hat = final_params[1]
-        beta_hats = final_params[2:2 + len(breakpoints)]
-
-        xx_plot = np.linspace(min(pw_fit.xx), max(pw_fit.xx), 1000)
-        #xx_plot = np.linspace(min(np.power(10,pw_fit.xx)), max(np.power(10,pw_fit.xx)), num = 50)
-        yy_plot = intercept_hat + alpha_hat * xx_plot
-
-
-        ## Calculate segmented regression x-axis
-        for bp_count in range(len(breakpoints)):
-            yy_plot += beta_hats[bp_count] * np.maximum(xx_plot - breakpoints[bp_count], 0)
-
-        ##Calculate metrics for low and high abundance transcripts
-        low_abundance_transcripts = merged_df[(merged_df['bulk']>0.01) & (merged_df['bulk']<10**breakpoints[0])]
-        high_abundance_transcripts = merged_df[(merged_df['bulk']>0.01) & (merged_df['bulk']>=10**breakpoints[0])]
-
-        low_abundance_corrcoeff = np.corrcoef(np.log10(low_abundance_transcripts['bulk']+0.0001),
-                              np.log10(low_abundance_transcripts['merfish']))[0,1]
-
-        high_abundance_corrcoeff = np.corrcoef(np.log10(high_abundance_transcripts['bulk']+0.0001),
-                              np.log10(high_abundance_transcripts['merfish']))[0,1]
-
-
-
-        bulk_metrics = {
-                        "bulk_r2" : corr,
-                        "mean_ratio_merfish_by_bulk_count" : mean_ratio,
-                        "stdv_ratio_merfish_by_bulk_count" : std_ratio,
-                        "num_genes_within_mean_2stdv_ratio" : within_range_count,
-                        "num_genes_outside_mean_2stdv_ratio" : outside_range_count,
-                        "correlation_inflection_pt":10**breakpoints[0],
-                        "low_abundance_corr":low_abundance_corrcoeff,
-                        "high_abundance_corr":high_abundance_corrcoeff,
-                        "low_abundance_count": len(low_abundance_transcripts),
-                        "high_abundance_count": len(high_abundance_transcripts),
-                        }
-        plot_objects = {
-                        "x" : x,
-                        "y" : y,
-                        "xx_plot" : xx_plot,
-                        "yy_plot" : yy_plot,
-                        "breakpoints" : breakpoints
-                        }
+    if breakpoints and breakpoints_1:
+        if breakpoints < breakpoints_1:
+            pw_fit_best = pw_fit
+        else:
+            pw_fit_best = pw_fit_1
+    elif breakpoints and not breakpoints_1:
+        pw_fit_best = pw_fit
+    elif not breakpoints and breakpoints_1:
+        pw_fit_best = pw_fit_1
     else:
-
         bulk_metrics = {
-                        "bulk_r2" : corr,
-                        "mean_ratio_merfish_by_bulk_count" : mean_ratio,
-                        "stdv_ratio_merfish_by_bulk_count" : std_ratio,
-                        "num_genes_within_mean_2stdv_ratio" : within_range_count,
-                        "num_genes_outside_mean_2stdv_ratio" : outside_range_count,
-                        "correlation_inflection_pt" : None,
-                        "low_abundance_corr" : None,
-                        "high_abundance_corr" : None,
-                        "low_abundance_count" : None,
-                        "high_abundance_count" : None,
-                        }
+            "bulk_r2": corr,
+            "mean_ratio_merfish_by_bulk_count": mean_ratio,
+            "stdv_ratio_merfish_by_bulk_count": std_ratio,
+            "num_genes_within_mean_2stdv_ratio": within_range_count,
+            "num_genes_outside_mean_2stdv_ratio": outside_range_count,
+            "correlation_inflection_pt": None,
+            "low_abundance_corr": None,
+            "high_abundance_corr": None,
+            "low_abundance_count": None,
+            "high_abundance_count": None,
+        }
+
         plot_objects = {
-                        "x" : x,
-                        "y" : y,
-                        "xx_plot" : None,
-                        "yy_plot" : None,
-                        "breakpoints" : None,
-                        }
+            "x": x,
+            "y": y,
+            "xx_plot": None,
+            "yy_plot": None,
+            "breakpoints": None,
+        }
+        return (merged_df, bulk_metrics, plot_objects)
 
+    if pw_fit_best.best_muggeo:
+        # Sort and extract the breakpoints
+        breakpoints = sorted(pw_fit_best.best_muggeo.best_fit.next_breakpoints)
+
+        # Check if there is at least one valid breakpoint
+        if len(breakpoints) >= 1:
+            final_params = pw_fit_best.best_muggeo.best_fit.raw_params
+
+            # Extract the parameters
+            intercept_hat = final_params[0]
+            alpha_hat = final_params[1]
+            beta_hats = final_params[2:2 + len(breakpoints)]  # Adjust to the number of breakpoints
+
+            # Create a plot of the segmented regression
+            xx_plot = np.linspace(min(pw_fit.xx), max(pw_fit.xx), 1000)
+            yy_plot = intercept_hat + alpha_hat * xx_plot
+
+            # Add segments based on the breakpoints
+            for bp_count in range(len(breakpoints)):
+                yy_plot += beta_hats[bp_count] * np.maximum(xx_plot - breakpoints[bp_count], 0)
+
+            # Calculate metrics for low and high abundance transcripts based on the lower breakpoint
+            low_abundance_transcripts = merged_df[(merged_df['bulk'] > 0.01) & (merged_df['bulk'] < 10**breakpoints[0])]
+            high_abundance_transcripts = merged_df[(merged_df['bulk'] > 0.01) & (merged_df['bulk'] >= 10**breakpoints[0])]
+
+            # Calculate the correlation coefficients for low and high abundance transcripts
+            low_abundance_corrcoeff = np.corrcoef(np.log10(low_abundance_transcripts['bulk'] + 0.0001),
+                                                  np.log10(low_abundance_transcripts['merfish']))[0, 1]
+
+            high_abundance_corrcoeff = np.corrcoef(np.log10(high_abundance_transcripts['bulk'] + 0.0001),
+                                                   np.log10(high_abundance_transcripts['merfish']))[0, 1]
+
+            # Prepare the metrics for bulk data
+            bulk_metrics = {
+                "bulk_r2": corr,
+                "mean_ratio_merfish_by_bulk_count": mean_ratio,
+                "stdv_ratio_merfish_by_bulk_count": std_ratio,
+                "num_genes_within_mean_2stdv_ratio": within_range_count,
+                "num_genes_outside_mean_2stdv_ratio": outside_range_count,
+                "correlation_inflection_pt": 10**breakpoints[0],  # Use the lower breakpoint
+                "low_abundance_corr": low_abundance_corrcoeff,
+                "high_abundance_corr": high_abundance_corrcoeff,
+                "low_abundance_count": len(low_abundance_transcripts),
+                "high_abundance_count": len(high_abundance_transcripts),
+            }
+
+            # Prepare the plot objects for visualization
+            plot_objects = {
+                "x": x,
+                "y": y,
+                "xx_plot": xx_plot,
+                "yy_plot": yy_plot,
+                "breakpoints": breakpoints
+            }
     return (merged_df, bulk_metrics, plot_objects)
-
+    
 def merscope_checkerboard_analysis(filtered_transcripts, global_x_min, global_x_max, global_y_min, global_y_max, fov_size, n_genes, outputfolderpath=None, expid=None):
     """
     Perform checkerboard analysis on filtered transcript data, generate plot.
@@ -887,8 +935,8 @@ def merscope_checkerboard_analysis(filtered_transcripts, global_x_min, global_x_
     for plane_number in range(7): # for each z plane
         plane = filtered_transcripts_adjusted[filtered_transcripts_adjusted['global_z'] == plane_number]
         transcript_count.append(plane.shape[0]) # transcript count per plane
-        #print(np.asarray(plane['global_x']))
-        print(pixel_dimensions)
+        ##print(np.asarray(plane['global_x']))
+        #print(pixel_dimensions)
 
         hist_x, cb_chunk_x = merscope_checkerboard_values(plane['global_x'], pixel_dimensions, int(fov_size*1000))
         hist_y, cb_chunk_y = merscope_checkerboard_values(plane['global_y'], pixel_dimensions, int(fov_size*1000))
@@ -975,7 +1023,7 @@ def calc_spillover_gene(adata, cbg, verbose=False):
         dataframe containing cell-by-gene expression data.
 
     verbose : bool, optional
-        Whether to print verbose output during the calculation. Default is False.
+        Whether to #print verbose output during the calculation. Default is False.
 
     Returns:
     --------
@@ -1108,7 +1156,7 @@ def calc_spillover_gene(adata, cbg, verbose=False):
 
         positive_clusters = inst_ser[inst_ser > positive_z_thresh].index.tolist()
 
-        # print(inst_gene, len(positive_clusters))
+        # #print(inst_gene, len(positive_clusters))
 
         if len(positive_clusters) > 0:
 
@@ -1271,4 +1319,149 @@ def calc_spillover_gene(adata, cbg, verbose=False):
 
     return spillover_sum, spillover_worst, df_spillover, df_spillover_gene
 
+def adjust_tr_remove(Zdistribution, thickness, num_fov):
+    print('num_fov', num_fov)
+    if num_fov == 0:
+        return 0
+    filtered = Zdistribution[Zdistribution['0']<=np.floor(thickness)]
+    print('filtered', filtered)
+    adj_trs = filtered['1'].sum()/(np.floor(thickness)+1) * 7
+    return adj_trs/num_fov
 
+def adjust_tr_7(total_tr_after_filter, thickness, num_fov):
+    print('num_fov', num_fov)
+    if num_fov == 0:
+        return 0
+    adj_trs = total_tr_after_filter/(thickness+1) * 7
+    return adj_trs/num_fov
+
+def adjust_tr_6(total_tr_after_filter, thickness, num_fov):
+    print('num_fov', num_fov)
+    if num_fov == 0:
+        return 0
+    adj_trs = total_tr_after_filter/thickness * 6
+    return adj_trs/num_fov
+    
+def tr_z0(Zdistribution, num_fov):
+    if num_fov == 0:
+        return 0
+    print('num_fov', num_fov)
+    return Zdistribution.loc[0, '1']/num_fov
+    
+def tr_max(Zdistribution, num_fov):
+    pass
+
+
+def process_dataset(expid, qc_metrics, fov_count_dic, grid_10um, z_counts):
+    
+    total_trs = qc_metrics['Total counts']
+    total_num_fov = len(fov_count_dic.keys())
+    filtered_1 = {k:fov_count_dic[k] for k in fov_count_dic.keys() if fov_count_dic[k] > 1000}
+    print('filtered_1', filtered_1)
+    num_fov_filtered = len(filtered_1.keys())
+    print('num_fov_filtered', num_fov_filtered)
+    total_tr_after_filter = np.sum(list(filtered_1.values()))
+    tr_fov = total_tr_after_filter / num_fov_filtered
+    print('z_counts ', z_counts, " !!")
+    z_counts_dic = {i:z_counts.loc[i].sum() if type(z_counts.loc[i].sum()) is np.int64 else z_counts.loc[i].sum().values[0] for i in np.unique(z_counts.index)}
+    zDistribution = pd.DataFrame.from_dict(z_counts_dic, orient="index").reset_index()
+    zDistribution.columns = ['0','1']
+    thickness, profile = cal_thick(expid, zDistribution)
+
+    #filtered = {k:filtered_1[k]/(thickness+1)*7 for k in filtered_1.keys()}
+    #adjust_tr_fov = np.sum(list(filtered.values())) / len(filtered.keys())
+    #zDistribution.to_csv(f"{outputfolderpath}/{expid}_zdis.csv")
+    
+    tr_fov_unadjusted = total_trs/total_num_fov
+    
+    tr_fov_z0 = tr_z0(zDistribution, num_fov_filtered)
+    
+    tr_fov_adjusted_thickness_removed = adjust_tr_remove(zDistribution, thickness, num_fov_filtered)
+    
+    tr_fov_adjusted_thickness_7 = adjust_tr_7(total_tr_after_filter, thickness, num_fov_filtered)
+    
+    tr_fov_adjusted_thickness_6 = adjust_tr_6(total_tr_after_filter, thickness, num_fov_filtered)
+
+    countsPerGrid = pd.DataFrame(np.transpose(np.unique(grid_10um, return_counts=True)))
+    print('countsPerGrid', countsPerGrid.loc[0:10])
+    adjusted_countsPerGrid_7 = countsPerGrid/(thickness+1)*7
+    adjusted_countsPerGrid_6 = countsPerGrid/(thickness)*6
+    
+    transcriptsPer100umMean= countsPerGrid[countsPerGrid[1] > 3][1].mean()
+    transcriptsPer100umMedian = countsPerGrid[countsPerGrid[1] > 3][1].median()
+
+    transcriptsPer100umMean_adjust = adjusted_countsPerGrid_6[countsPerGrid[1] > 3][1].mean()
+    transcriptsPer100umMedian_adjust = adjusted_countsPerGrid_6[countsPerGrid[1] > 3][1].median()
+    
+    transcriptsPer100umMean_adjust_7 = adjusted_countsPerGrid_7[countsPerGrid[1] > 3][1].mean()
+    transcriptsPer100umMedian_adjust_7 = adjusted_countsPerGrid_7[countsPerGrid[1] > 3][1].median()
+
+    res = {
+        'total_tr': total_trs,
+        'tr_fov_adjust(portal)' : tr_fov,
+        'thickness': thickness,
+        'profile' : profile,
+        'adjust_tr_fov_z0': tr_fov_z0,
+        'adjust_tr_fov(thickness, remove)':  tr_fov_adjusted_thickness_removed,
+        'adjust_tr_fov(thickness, 7)':  tr_fov_adjusted_thickness_7,
+        'adjust_tr_fov(thickness)':  tr_fov_adjusted_thickness_6,
+        'transcriptsPer100umMean': transcriptsPer100umMean,
+        'transcriptsPer100umMedian': transcriptsPer100umMedian,
+        'transcriptsPer100umMean_thick_adjust': transcriptsPer100umMean_adjust,
+        'transcriptsPer100umMedian_thick_adjust': transcriptsPer100umMedian_adjust,
+        'transcriptsPer100umMean_thick_adjust_7': transcriptsPer100umMean_adjust_7,
+        'transcriptsPer100umMedian_thick_adjust_7': transcriptsPer100umMedian_adjust_7,
+    }
+
+    #print(res)
+        
+    return res
+
+
+def cal_thick(expid, zDistribution):
+    #print(zDistribution)
+    zDistribution.columns = ['0','1']
+    tissueThickness = None
+    currentProfile = None
+    
+    if zDistribution.iloc[-3:]['1'].mean() > zDistribution.iloc[:3].mean()[1] - zDistribution.iloc[:3].std()[1] or zDistribution.iloc[-2:]['1'].mean() > 0.5 * zDistribution.iloc[:2].mean()['1']:
+        tissueThickness = zDistribution['0'].max()
+        currentProfile = 'flat'
+ 
+    else:
+        def sigmoid(x, L ,x0, k):
+            y = L / (1 + np.exp(-k*(x-x0)))
+            return y
+ 
+        try:
+            guess = [max(zDistribution['1']), np.median(zDistribution['0']), 1]
+            params, _ = curve_fit(sigmoid, zDistribution['0'], zDistribution['1'], p0=guess, maxfev=5000)
+ 
+            # Extract the fitted parameters
+            L, x0, k = params
+ 
+            y = 0.5*sigmoid(0, L, x0, k)
+            tissueThickness = max(min(x0 + np.log((L/(y))-1)/k, zDistribution['0'].max()), 0)
+            currentProfile = 'sigmoidal'
+        # if sigmoidal fit doesn't converge, try fitting to exponential decay
+        except RuntimeError as e:
+            pass
+    if tissueThickness is None or tissueThickness==0:
+        def exponential_decay(x, a, b):
+            return a * np.exp(b * x)
+ 
+        initial_guess = [zDistribution['1'][0], -0.1]
+ 
+        params_exp_decay, covariance = curve_fit(exponential_decay, zDistribution['0'], zDistribution['1'], p0=initial_guess)
+ 
+        a_fitted, b_fitted = params_exp_decay
+ 
+        a_fitted, b_fitted
+        currentProfile = 'exponential'
+        tissueThickness = np.log(0.5) / b_fitted
+    plt.figure()
+    plt.plot(zDistribution['1'], '.')
+    #plt.title(dSetName)
+    plt.show()
+ 
+    return (tissueThickness, currentProfile)
