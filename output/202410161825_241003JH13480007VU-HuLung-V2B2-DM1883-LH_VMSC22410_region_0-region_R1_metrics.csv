@@ -1,0 +1,106 @@
+,0
+softwareVersion,234b.241009.1549
+machineId,VMSC22410
+experimentName,241003JH13480007VU-HuLung-V2B2-DM1883-LH
+experimentId,202410161825_241003JH13480007VU-HuLung-V2B2-DM1883-LH_VMSC22410
+panelName,D2M1883
+experiment,202410161825_241003JH13480007VU-HuLung-V2B2-DM1883-LH_VMSC22410
+region,region_R1
+M_version,M1.7
+Seg_algo,cellpose_default
+seed_channel,na
+entity_fill_channel,Cellbound3
+nuclear_channel,DAPI
+Num blank,12594
+Total counts,2471058
+Num transcript counts(exclude blank),2458464
+blank_div_total,0.51%
+fov_count,603
+tissue_area_square_mm,53.548812
+transcripts_per_fov,4077.054726368159
+transcripts_per_square_mm,45910.71040007386
+blanks_per_square_mm,235.18729042952438
+unique_coding_barcodes,815
+unique_blank_barcodes,85
+FDR_counts,4.91%
+z_index_min_error,0
+z_index_max_error,3
+z_max_error,0.0709576987986823
+z_min_error,0.02391406070726009
+z_std_error,0.016630292613989475
+z_index_min_count,6
+z_index_max_count,0
+z_max_count_per_square_mm,14428.368644294107
+z_min_count_per_square_mm,18.973343423566522
+z_std_count_per_square_mm,4303.2877037511225
+z_mean_count_per_square_mm,3296.116874771057
+Num coding transcripts within cell,1792122
+Num coding transcripts not within cell,666342
+Num blanks within cell,9083
+Num blanks not within cell,3511
+pct coding transcript within cell,72.90%
+radial_deviation_coding,-0.09119493613467902
+radial_deviation_blank,-0.29774127310061604
+max_per_bit_error,0.18455452847006773
+min_per_bit_error,0.008258272806675727
+mean_per_bit_error,0.051528609329768424
+median_per_bit_error,0.03295654898672301
+std_per_bit_error,0.04693432321714652
+fraction_genes_above_max_blank,0.24049079754601227
+fraction_genes_above_mean_blank,0.758282208588957
+fraction_genes_above_median_blank,0.8993865030674847
+bulk_r2,0.41133886279600523
+mean_ratio_merfish_by_bulk_count,14663.727520389135
+stdv_ratio_merfish_by_bulk_count,129729.51168585173
+num_genes_within_mean_2stdv_ratio,786
+num_genes_outside_mean_2stdv_ratio,8
+correlation_inflection_pt,0.07349607124047287
+low_abundance_corr,-0.09197643943051316
+high_abundance_corr,0.3456288776181278
+low_abundance_count,46
+high_abundance_count,732
+cb_mean,0.6402591674763959
+cb_min,0.4936964913259994
+plane6_plane0_transcript_ratio,0.1957353356977139
+plane3_plane0_transcript_ratio,0.3680196655869013
+transcript_per_fov_per_gene,11.601592540599926
+Num unique cells,156012
+Num unique genes,815
+Mean transcript / cell,11.545297797605313
+Mean genes / cell,8.58023100787119
+Median transcript / cell,5.0
+Median genes / cell,5.0
+Num filtered cells,6663
+perc filtered cells,4.27%
+pct_dropout_by_counts_median,98.13897643704037
+n_cells_by_counts_median,124.0
+n_genes_by_counts_median,44.0
+pct_dropout_by_counts_mean,94.0753488038053
+n_cells_by_counts_mean,394.759509202454
+n_genes_by_counts_mean,48.285907248986945
+Num highly variable genes,84
+gene_expression_dispersion_median,9.575109962817978
+gene_expression_dispersion_mean,8.278027566616759
+Num clusters,12
+Num clusters after filtering (> 100),12
+mean_moranI_blank,0.0010640127289744002
+max_moranI_blank,0.013467521429430616
+mean_moranI_coding,0.025516189396539067
+max_moranI_coding,0.33001542970938696
+total_tr,2471058
+tr_fov_adjust(portal),5629.457943925234
+thickness,2.353300540490245
+profile,exponential
+adjust_tr_fov_z0,1809.693925233645
+"adjust_tr_fov(thickness, remove)",8578.788940809969
+"adjust_tr_fov(thickness, 7)",11751.468480578103
+adjust_tr_fov(thickness),14352.925638862494
+transcriptsPer100umMean,15.135375850863234
+transcriptsPer100umMedian,9.0
+transcriptsPer100umMean_thick_adjust,38.589314684923835
+transcriptsPer100umMedian_thick_adjust,22.946495388451574
+transcriptsPer100umMean_thick_adjust_7,31.595029934463717
+transcriptsPer100umMedian_thick_adjust_7,18.78746006786184
+corner_to_center_ratio_2per,0.68
+corner_to_center_ratio_3per,0.71
+corner_to_center_ratio_5per,0.74
